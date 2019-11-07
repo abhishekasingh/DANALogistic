@@ -25,8 +25,8 @@ missmap(ad.data, y.at = c(1), col = c('yellow','black'), y.labels = c(' '))
 
 ## 4. Explanatory Data Analysis
 
-correlations <- cor(ad.data)
-corrplot(correlations, method="circle")
+#correlations <- cor(ad.data)
+#corrplot(correlations, method="circle")
 
 ### Age Histogram Plot
 theme_update(plot.title = element_text(hjust = 0.5))
@@ -94,46 +94,70 @@ split = sample.split(ad.data$clicked.on.ad, SplitRatio = 0.8)
 ad.training.set = subset(ad.data, split == TRUE)
 ad.test.set = subset(ad.data, split == FALSE)
 
-write.csv(ad.training.set, file = "training.csv")
-write.csv(ad.test.set, file = "test.csv")
+#write.csv(ad.training.set, file = "training.csv")
+#write.csv(ad.test.set, file = "test.csv")
 
 ## 8. Fit Logistic Regression to the Training Set 
 ##colnames(ad.data) 
 ### daily.time.spent.on.site, age, area.income, daily.internet.usage, gender, time.of.day 
 ### clicked.on.ad
 
-ad.regressor = glm(clicked.on.ad ~ .,
+
+nothing.regressor <- glm(clicked.on.ad ~ 1,
+                         family = binomial(link="logit"),
+                         data = ad.training.set)
+summary(nothing.regressor)
+
+full.ad.regressor <-  glm(clicked.on.ad ~ .,
                 family = binomial(link="logit"),
                data = ad.training.set)
-summary(ad.regressor)
+summary(full.ad.regressor)
 
+## Backward Step
+backwards.step = stepAIC(full.ad.regressor,
+                         direction = 'backward')
 
-probabilities <- ad.regressor %>% predict(ad.test.set, type = "response")
-predicted.classes <- ifelse(probabilities > 0.5, "Clicked", "Not Clicked")
+## Forward Step
+forward.step = stepAIC(nothing.regressor,
+                scope=list(lower=formula(nothing.regressor),
+                           upper=formula(full.ad.regressor)),
+                direction="forward")
+
+## Both Side
+bothways.step = stepAIC(nothing.regressor,
+                scope = list(lower=formula(nothing.regressor),
+                             upper=formula(full.ad.regressor)),
+                direction="both")
+
+coef(backwards.step)
+coef(forward.step)
+coef(bothways.step)
+
+full.probabilities <- full.ad.regressor %>% predict(ad.test.set, type = "response")
+predicted.classes <- ifelse(full.probabilities > 0.5, "Clicked", "Not Clicked")
 table(predicted.classes)
 
 ## 9. Backward Elimination
-
 # Consider the predictor with the highest p-value . If P > SL, remove the predictor
 
 backwardElimination <- function(x, sl) {
     numVars = length(x)
     for (i in c(1:numVars)){
-        regressor = glm(formula = clicked.on.ad ~ ., 
+        el.regressor = glm(formula = clicked.on.ad ~ ., 
                         family = binomial(link="logit"),
                         data = x)
-        maxVar = max(coef(summary(regressor))[c(2:numVars), "Pr(>|z|)"])
+        maxVar = max(coef(summary(el.regressor))[c(2:numVars), "Pr(>|z|)"])
         if (maxVar > sl){
-            j = which(coef(summary(regressor))[c(2:numVars), "Pr(>|z|)"] == maxVar)
+            j = which(coef(summary(el.regressor))[c(2:numVars), "Pr(>|z|)"] == maxVar)
             x = x[, -j]
         }
         numVars = numVars - 1
     }
-    return(regressor)
+    return(el.regressor)
 }
 
 SL = 0.05
 elimination.regressor = backwardElimination(ad.training.set, SL)
 summary(elimination.regressor)
-ad.test.set$predicted.clicked <- elimination.regressor %>% predict(ad.test.set, type = "response")
-table(ad.test.set$clicked.on.ad, ifelse(ad.test.set$predicted.clicked > 0.5, "Clicked", "Not Clicked"))
+el.probabilities <- elimination.regressor %>% predict(ad.test.set, type = "response")
+table(ad.test.set$clicked.on.ad, ifelse(el.probabilities > 0.5, "Clicked", "Not Clicked"))
